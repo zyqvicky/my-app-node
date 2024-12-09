@@ -23,7 +23,7 @@ router.post('/createOrder', (req, res) => {
 
             // 检查订单是否已存在
             db.query(
-                'SELECT * FROM cart WHERE userId = ? AND courseId = ?',
+                'SELECT * FROM cart WHERE userId = ? AND courseId = ? AND status = 0',
                 [userId, courseId],
                 (err, existingOrder) => {
                     if (err) return res.status(500).json({ message: '订单检查失败', error: err });
@@ -111,6 +111,25 @@ router.delete('/deleteOrders', (req, res) => {
                 message: '订单删除成功',
                 total,
             });
+        });
+    });
+});
+
+// 更新订单状态
+router.put('/updateOrderStatus', (req, res) => {
+    const { orderIds } = req.body;
+
+    const sql = `
+        UPDATE cart
+        SET status = 1
+        WHERE id In (?)
+    `;
+
+    db.query(sql, [orderIds], (err, result) => {
+        if (err) return res.status(500).json({ message: '订单状态更新失败', error: err });
+
+        return res.status(200).json({
+            message: '订单状态更新成功',
         });
     });
 });
