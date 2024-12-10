@@ -23,12 +23,18 @@ router.post('/createOrder', (req, res) => {
 
             // 检查订单是否已存在
             db.query(
-                'SELECT * FROM cart WHERE userId = ? AND courseId = ? AND status = 0',
+                'SELECT * FROM cart WHERE userId = ? AND courseId = ?',
                 [userId, courseId],
-                (err, existingOrder) => {
+                (err, existingOrders) => {
                     if (err) return res.status(500).json({ message: '订单检查失败', error: err });
-                    if (existingOrder.length > 0) {
-                        return res.status(409).json({ message: '订单已存在，无法重复创建' });
+                    if (existingOrders.length > 0) {
+                        // 判断订单状态
+                        const paidOrder = existingOrders.find(order => order.status === 1);
+                        if (paidOrder) {
+                            return res.status(409).json({ message: '该课程已购买，无法重复购买' });
+                        }
+            
+                        return res.status(409).json({ message: '该课程已在购物车中，无法重复添加' });
                     }
 
                     // 插入订单记录
@@ -41,7 +47,7 @@ router.post('/createOrder', (req, res) => {
                         [orderId, userId, courseId, price, 0],
                         (err, result) => {
                             if (err) return res.status(500).json({ message: '订单创建失败', error: err });
-                            const countSql = 'SELECT COUNT(*) AS total FROM cart';
+                            const countSql = 'SELECT COUNT(*) AS total FROM cart WHERE status = 0';
                             db.query(countSql, (err, countResult) => {
                                 if (err) return res.status(500).json({ message: '订单统计失败', error: err });
 
@@ -95,14 +101,14 @@ router.delete('/deleteOrders', (req, res) => {
     let sql;
     
     if (!orderIds) {
-        sql = 'DELETE FROM cart';
+        sql = 'DELETE FROM cart WHERE status = 0';
     } else {
-        sql = `DELETE FROM cart WHERE id IN (?)`;
+        sql = `DELETE FROM cart WHERE id IN (?) AND status = 0`;
     }
     db.query(sql, [orderIds], (err, result) => {
         if (err) return res.status(500).json({ message: '订单删除失败', error: err });
 
-        const countSql = 'SELECT COUNT(*) AS total FROM cart';
+        const countSql = 'SELECT COUNT(*) AS total FROM cart WHERE status = 0';
         db.query(countSql, (err, countResult) => {
             if (err) return res.status(500).json({ message: '订单统计失败', error: err });
 
@@ -127,10 +133,18 @@ router.put('/updateOrderStatus', (req, res) => {
 
     db.query(sql, [orderIds], (err, result) => {
         if (err) return res.status(500).json({ message: '订单状态更新失败', error: err });
+        const countSql = 'SELECT COUNT(*) AS total FROM cart WHERE status = 0';
+        
+        db.query(countSql, (err, countResult) => {
+            if (err) return res.status(500).json({ message: '订单统计失败', error: err });
+            const total = countResult[0].total;
 
-        return res.status(200).json({
-            message: '订单状态更新成功',
+            return res.status(200).json({
+                message: '订单状态更新成功',
+                total,
+            });
         });
+        
     });
 });
 
