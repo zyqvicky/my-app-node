@@ -10,9 +10,11 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads"))); // 配置�
 const userRouter = require("./user/index");
 const courseRouter = require("./course/index");
 const cartRouter = require("./cart/index");
+const commentRouter = require("./comment/index");
 app.use("/api", userRouter);
 app.use("/api", courseRouter);
 app.use("/api", cartRouter);
+app.use("/api", commentRouter);
 
 app.listen(3000, () => {
     console.log("Server is running on port 3000");

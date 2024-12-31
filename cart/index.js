@@ -66,7 +66,7 @@ router.post('/createOrder', (req, res) => {
     });
 });
 
-// 获取订单列表
+// 根据id获取订单列表
 router.get('/getOrders', (req, res) => {
     const { userId } = req.query;
 
