@@ -167,16 +167,17 @@ router.post("/addComment", (req, res) => {
 
 // 回复其他评论
 router.post("/replyComment", (req, res) => {
-    const { content, courseId, userId, parentCommentId } = req.body;
+    const { content, courseId, userId, parentCommentId, targetUserId } =
+        req.body;
 
     const insertSql = `
-        INSERT INTO comment (content, courseId, userId, parentCommentId, commentTime, likeNum)
-        VALUES (?, ?, ?, ?, NOW(), 0)
+        INSERT INTO comment (content, courseId, userId, parentCommentId, commentTime, likeNum, targetUserId)
+        VALUES (?, ?, ?, ?, NOW(), 0, ?)
     `;
 
     db.query(
         insertSql,
-        [content, courseId, userId, parentCommentId],
+        [content, courseId, userId, parentCommentId, targetUserId],
         (err, result) => {
             if (err) {
                 return res.status(500).json({
@@ -185,12 +186,96 @@ router.post("/replyComment", (req, res) => {
                 });
             }
 
-            return res.status(200).json({
-                message: "评论发表成功",
-                commentId: result.insertId,
-            });
+            const insertMessageSql = `
+                INSERT INTO message (type, title, content, status, userId, senderId, courseId)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `;
+
+            db.query(
+                insertMessageSql,
+                [
+                    "comment",
+                    "新消息",
+                    content,
+                    0, // 未读状态
+                    targetUserId, // 收到评论的用户ID
+                    userId, // 发送评论的用户ID
+                    courseId, // 课程ID
+                ],
+                (msgErr) => {
+                    if (msgErr) {
+                        return res.status(500).json({
+                            message: "评论成功，但消息通知失败",
+                            error: msgErr,
+                        });
+                    }
+
+                    return res.status(200).json({
+                        message: "评论发表成功，消息通知已发送",
+                    });
+                }
+            );
         }
     );
+});
+
+// 根据id获取消息列表
+router.get("/getMessages", (req, res) => {
+    const { userId } = req.query;
+
+    const sql = `
+        SELECT 
+            message.id AS messageId,
+            MIN(comment.id) AS commentId,
+            message.type,
+            message.title,
+            message.content,
+            message.status,
+            message.courseId,
+            user.id AS userId,
+            user.username AS username,
+            user.avatar AS avatar
+        FROM message
+        JOIN user ON message.userId = user.id
+        LEFT JOIN comment ON message.courseId = comment.courseId 
+                        AND message.userId = comment.targetUserId
+        WHERE message.userId = ?
+        GROUP BY message.id;
+    `;
+
+    db.query(sql, [userId], (err, result) => {
+        if (err) {
+            return res.status(500).json({
+                message: "消息列表获取失败",
+                error: err,
+            });
+        }
+
+        return res.status(200).json({
+            message: "消息列表获取成功",
+            data: result,
+        });
+    });
+});
+
+// 标记消息已读
+router.post("/readMessage", (req, res) => {
+    const { messageId } = req.body;
+
+    const updateSql = `UPDATE message SET status = 1 WHERE id = ?`;
+
+    db.query(updateSql, [messageId], (err) => {
+        if (err) {
+            return res.status(500).json({
+                message: "标记消息已读失败",
+                error: err,
+            });
+        }
+
+        return res.status(200).json({
+            message: "标记消息已读成功",
+        });
+    });
 });
 
 module.exports = router;
