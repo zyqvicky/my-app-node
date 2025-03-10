@@ -212,4 +212,99 @@ router.get("/searchCourse", (req, res) => {
     });
 });
 
+// 记录进入课程详情页面的时间
+router.post("/courseEntry", (req, res) => {
+    const { userId, courseId } = req.body;
+
+    try {
+        // 存储用户进入时间
+        global.userSession = global.userSession || {};
+        global.userSession[userId] = {
+            courseId,
+            entryTime: Date.now(),
+        };
+
+        res.status(200).json({ message: "进入页面时间已记录" });
+    } catch (error) {
+        console.error("记录进入时间失败:", error);
+        res.status(500).json({ error: "记录进入时间失败" });
+    }
+});
+
+// 记录用户离开课程页面的时长
+router.post("/courseExit", (req, res) => {
+    const { userId, courseId } = req.body;
+
+    try {
+        const sessionData = global.userSession?.[userId];
+        if (!sessionData || sessionData.courseId !== courseId) {
+            return res.status(400).json({ error: "无效的退出记录" });
+        }
+
+        const stayDuration = Math.floor(
+            (Date.now() - sessionData.entryTime) / 1000
+        );
+
+        // 查询是否已有该记录
+        db.query(
+            `SELECT * FROM user_course WHERE userId = ? AND courseId = ?`,
+            [userId, courseId],
+            (err, results) => {
+                if (err) {
+                    console.error("查询失败:", err);
+                    return res.status(500).json({ error: "查询失败" });
+                }
+
+                if (results.length > 0) {
+                    // 更新点击次数和总时长
+                    db.query(
+                        `
+                        UPDATE user_course
+                        SET clickCount = clickCount + 1, 
+                            duration = duration + ?,
+                            lastClickTime = NOW()
+                        WHERE userId = ? AND courseId = ?
+                    `,
+                        [stayDuration, userId, courseId],
+                        (updateErr) => {
+                            if (updateErr) {
+                                console.error("更新数据失败:", updateErr);
+                                return res
+                                    .status(500)
+                                    .json({ error: "更新数据失败" });
+                            }
+
+                            delete global.userSession[userId];
+                            res.status(200).json({ message: "停留时长已记录" });
+                        }
+                    );
+                } else {
+                    // 无记录，插入新数据
+                    db.query(
+                        `
+                        INSERT INTO user_course (userId, courseId, clickCount, duration, lastClickTime)
+                        VALUES (?, ?, 1, ?, NOW())
+                    `,
+                        [userId, courseId, stayDuration],
+                        (insertErr) => {
+                            if (insertErr) {
+                                console.error("插入数据失败:", insertErr);
+                                return res
+                                    .status(500)
+                                    .json({ error: "插入数据失败" });
+                            }
+
+                            delete global.userSession[userId];
+                            res.status(200).json({ message: "停留时长已记录" });
+                        }
+                    );
+                }
+            }
+        );
+    } catch (error) {
+        console.error("记录停留时长失败:", error);
+        res.status(500).json({ error: "记录停留时长失败" });
+    }
+});
+
 module.exports = router;
