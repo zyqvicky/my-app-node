@@ -228,149 +228,176 @@ router.get("/isBuy", (req, res) => {
     });
 });
 
-// 提交评分
-router.post("/rateCourse", (req, res) => {
-    const { userId, courseId, rating } = req.body;
+// 用户点击课程 & 交互
+router.post("/courseAction", (req, res) => {
+    const { action, userId, courseId, rating } = req.body;
 
-    // 检查是否已经评分
-    db.query(
-        "SELECT * FROM ratings WHERE userId = ? AND courseId = ?",
-        [userId, courseId],
-        (err, result) => {
-            if (err)
-                return res
-                    .status(500)
-                    .json({ message: "数据库查询失败", error: err });
+    if (!userId || !courseId) {
+        return res.status(400).json({ error: "userId 和 courseId 不能为空" });
+    }
 
-            if (result.length > 0) {
-                return res.status(400).json({ message: "您已评价过该课程" });
-            }
-
-            // 插入评分记录
+    switch (action) {
+        case "rate":
             db.query(
-                "INSERT INTO ratings (userId, courseId, rating) VALUES (?, ?, ?)",
-                [userId, courseId, rating],
-                (err) => {
+                "SELECT rating FROM user_course WHERE userId = ? AND courseId = ?",
+                [userId, courseId],
+                (err, result) => {
+                    if (err) {
+                        return res
+                            .status(500)
+                            .json({ message: "数据库查询失败", error: err });
+                    }
+
+                    if (result.length > 0 && result[0].rating !== null) {
+                        return res
+                            .status(400)
+                            .json({ message: "您已评价过该课程" });
+                    }
+
+                    db.query(
+                        "INSERT INTO user_course (userId, courseId, rating) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE rating = VALUES(rating)",
+                        [userId, courseId, rating],
+                        (err) => {
+                            if (err) {
+                                return res.status(500).json({
+                                    message: "评分提交失败",
+                                    error: err,
+                                });
+                            }
+                            res.json({
+                                success: true,
+                                message: "评分提交成功",
+                            });
+                        }
+                    );
+                }
+            );
+            break;
+
+        case "getRating":
+            db.query(
+                "SELECT rating FROM user_course WHERE userId = ? AND courseId = ?",
+                [userId, courseId],
+                (err, result) => {
                     if (err)
                         return res
                             .status(500)
-                            .json({ message: "评分提交失败", error: err });
-                    res.json({ success: true, message: "评分提交成功" });
+                            .json({ error: "数据库查询失败", details: err });
+                    res.status(200).json({
+                        rating: result.length ? result[0].rating : null,
+                    });
                 }
             );
-        }
-    );
+            break;
+
+        case "entry":
+            try {
+                global.userSession = global.userSession || {};
+                global.userSession[userId] = {
+                    courseId,
+                    entryTime: Date.now(),
+                };
+                res.status(200).json({ message: "进入页面时间已记录" });
+            } catch (error) {
+                res.status(500).json({ error: "记录进入时间失败" });
+            }
+            break;
+
+        case "exit":
+            try {
+                const sessionData = global.userSession?.[userId];
+                if (!sessionData || sessionData.courseId !== courseId) {
+                    return res.status(400).json({ error: "无效的退出记录" });
+                }
+
+                const stayDuration = Math.floor(
+                    (Date.now() - sessionData.entryTime) / 1000
+                );
+
+                db.query(
+                    "SELECT * FROM user_course WHERE userId = ? AND courseId = ?",
+                    [userId, courseId],
+                    (err, results) => {
+                        if (err)
+                            return res
+                                .status(500)
+                                .json({ error: "查询失败", details: err });
+
+                        if (results.length > 0) {
+                            db.query(
+                                `UPDATE user_course
+                                 SET clickCount = clickCount + 1, 
+                                     duration = duration + ?,
+                                     lastClickTime = NOW()
+                                 WHERE userId = ? AND courseId = ?`,
+                                [stayDuration, userId, courseId],
+                                (updateErr) => {
+                                    if (updateErr)
+                                        return res
+                                            .status(500)
+                                            .json({ error: "更新数据失败" });
+
+                                    delete global.userSession[userId];
+                                    res.status(200).json({
+                                        message: "停留时长已记录",
+                                    });
+                                }
+                            );
+                        } else {
+                            db.query(
+                                `INSERT INTO user_course (userId, courseId, clickCount, duration, lastClickTime)
+                                 VALUES (?, ?, 1, ?, NOW())`,
+                                [userId, courseId, stayDuration],
+                                (insertErr) => {
+                                    if (insertErr)
+                                        return res
+                                            .status(500)
+                                            .json({ error: "插入数据失败" });
+
+                                    delete global.userSession[userId];
+                                    res.status(200).json({
+                                        message: "停留时长已记录",
+                                    });
+                                }
+                            );
+                        }
+                    }
+                );
+            } catch (error) {
+                res.status(500).json({ error: "记录停留时长失败" });
+            }
+            break;
+
+        default:
+            res.status(400).json({ error: "无效的 action" });
+    }
 });
 
-// 获取用户对课程评分
-router.get("/getRating", (req, res) => {
-    const { userId, courseId } = req.query;
+// 根据tag筛选推荐课程
+router.get("/recommendCourses", (req, res) => {
+    const { courseId } = req.query;
 
     const sql = `
-        SELECT rating FROM ratings WHERE userId = ? AND courseId = ?
+        SELECT * FROM course
+        WHERE tag LIKE CONCAT('%', (SELECT tag FROM course WHERE id = ?), '%') 
+        AND id != ?
+        ORDER BY RAND() 
+        LIMIT 5;
     `;
 
-    db.query(sql, [userId, courseId], (err, result) => {
-        if (err) return res.status(500).send("数据库查询失败！" + err);
-        if (result.length < 1) return res.status(200).json({ rating: 0 });
+    db.query(sql, [courseId, courseId], (err, results) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "数据库查询失败", details: err });
+        if (results.length < 1)
+            return res.status(404).json({ error: "暂无推荐课程" });
 
-        res.status(200).json({ rating: result[0].rating });
+        res.status(200).json({
+            message: "获取推荐课程成功！",
+            data: results,
+        });
     });
-});
-
-// 记录进入课程详情页面的时间
-router.post("/courseEntry", (req, res) => {
-    const { userId, courseId } = req.body;
-
-    try {
-        // 存储用户进入时间
-        global.userSession = global.userSession || {};
-        global.userSession[userId] = {
-            courseId,
-            entryTime: Date.now(),
-        };
-
-        res.status(200).json({ message: "进入页面时间已记录" });
-    } catch (error) {
-        console.error("记录进入时间失败:", error);
-        res.status(500).json({ error: "记录进入时间失败" });
-    }
-});
-
-// 记录用户离开课程页面的时长
-router.post("/courseExit", (req, res) => {
-    const { userId, courseId } = req.body;
-
-    try {
-        const sessionData = global.userSession?.[userId];
-        if (!sessionData || sessionData.courseId !== courseId) {
-            return res.status(400).json({ error: "无效的退出记录" });
-        }
-
-        const stayDuration = Math.floor(
-            (Date.now() - sessionData.entryTime) / 1000
-        );
-
-        // 查询是否已有该记录
-        db.query(
-            `SELECT * FROM user_course WHERE userId = ? AND courseId = ?`,
-            [userId, courseId],
-            (err, results) => {
-                if (err) {
-                    console.error("查询失败:", err);
-                    return res.status(500).json({ error: "查询失败" });
-                }
-
-                if (results.length > 0) {
-                    // 更新点击次数和总时长
-                    db.query(
-                        `
-                        UPDATE user_course
-                        SET clickCount = clickCount + 1, 
-                            duration = duration + ?,
-                            lastClickTime = NOW()
-                        WHERE userId = ? AND courseId = ?
-                    `,
-                        [stayDuration, userId, courseId],
-                        (updateErr) => {
-                            if (updateErr) {
-                                console.error("更新数据失败:", updateErr);
-                                return res
-                                    .status(500)
-                                    .json({ error: "更新数据失败" });
-                            }
-
-                            delete global.userSession[userId];
-                            res.status(200).json({ message: "停留时长已记录" });
-                        }
-                    );
-                } else {
-                    // 无记录，插入新数据
-                    db.query(
-                        `
-                        INSERT INTO user_course (userId, courseId, clickCount, duration, lastClickTime)
-                        VALUES (?, ?, 1, ?, NOW())
-                    `,
-                        [userId, courseId, stayDuration],
-                        (insertErr) => {
-                            if (insertErr) {
-                                console.error("插入数据失败:", insertErr);
-                                return res
-                                    .status(500)
-                                    .json({ error: "插入数据失败" });
-                            }
-
-                            delete global.userSession[userId];
-                            res.status(200).json({ message: "停留时长已记录" });
-                        }
-                    );
-                }
-            }
-        );
-    } catch (error) {
-        console.error("记录停留时长失败:", error);
-        res.status(500).json({ error: "记录停留时长失败" });
-    }
 });
 
 module.exports = router;
