@@ -212,6 +212,72 @@ router.get("/searchCourse", (req, res) => {
     });
 });
 
+// 用户是否购买过该课程
+router.get("/isBuy", (req, res) => {
+    const { userId, courseId } = req.query;
+
+    const sql = `
+        SELECT * FROM cart WHERE userId = ? AND courseId = ?
+    `;
+
+    db.query(sql, [userId, courseId], (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.length < 1) return res.status(200).json({ isBuy: false });
+
+        res.status(200).json({ isBuy: true });
+    });
+});
+
+// 提交评分
+router.post("/rateCourse", (req, res) => {
+    const { userId, courseId, rating } = req.body;
+
+    // 检查是否已经评分
+    db.query(
+        "SELECT * FROM ratings WHERE userId = ? AND courseId = ?",
+        [userId, courseId],
+        (err, result) => {
+            if (err)
+                return res
+                    .status(500)
+                    .json({ message: "数据库查询失败", error: err });
+
+            if (result.length > 0) {
+                return res.status(400).json({ message: "您已评价过该课程" });
+            }
+
+            // 插入评分记录
+            db.query(
+                "INSERT INTO ratings (userId, courseId, rating) VALUES (?, ?, ?)",
+                [userId, courseId, rating],
+                (err) => {
+                    if (err)
+                        return res
+                            .status(500)
+                            .json({ message: "评分提交失败", error: err });
+                    res.json({ success: true, message: "评分提交成功" });
+                }
+            );
+        }
+    );
+});
+
+// 获取用户对课程评分
+router.get("/getRating", (req, res) => {
+    const { userId, courseId } = req.query;
+
+    const sql = `
+        SELECT rating FROM ratings WHERE userId = ? AND courseId = ?
+    `;
+
+    db.query(sql, [userId, courseId], (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.length < 1) return res.status(200).json({ rating: 0 });
+
+        res.status(200).json({ rating: result[0].rating });
+    });
+});
+
 // 记录进入课程详情页面的时间
 router.post("/courseEntry", (req, res) => {
     const { userId, courseId } = req.body;
