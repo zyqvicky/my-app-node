@@ -503,7 +503,7 @@ router.get("/getRecommendations", async (req, res) => {
         // 查询所有用户的交互数据
         const allUserInteractions = await new Promise((resolve, reject) => {
             db.query(
-                "SELECT userId, courseId, rating, clickCount, duration, tag, category FROM user_course",
+                "SELECT userId, courseId, rating, clickCount, duration, tag, category, lastClickTime FROM user_course",
                 (err, result) => {
                     if (err) reject(err);
                     else resolve(result);
@@ -531,10 +531,21 @@ router.get("/getRecommendations", async (req, res) => {
             allUserInteractions, // 所有用户的交互数据
         });
 
+        // 根据推荐的课程 ID 查询课程详细信息
+        const recommendedCourses = await new Promise((resolve, reject) => {
+            db.query(
+                `SELECT * FROM course WHERE id IN (?)`,
+                [response.data.recommended_courses],
+                (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result);
+                }
+            );
+        });
+
         res.status(200).json({
             message: "推荐成功！",
-            recommendedCourses: response.data.recommended_courses,
-            predicted_category: response.data.predicted_category,
+            recommendedCourses, // 返回课程的完整信息
         });
     } catch (error) {
         res.status(500).json({
