@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const axios = require("axios");
 const db = require("../db/index");
 
 // 获取分类列表 暂时弃置
@@ -239,35 +240,81 @@ router.post("/courseAction", (req, res) => {
     switch (action) {
         case "rate":
             db.query(
-                "SELECT rating FROM user_course WHERE userId = ? AND courseId = ?",
-                [userId, courseId],
-                (err, result) => {
+                "SELECT tag, category FROM course WHERE id = ?",
+                [courseId],
+                (err, courseResult) => {
                     if (err) {
                         return res
                             .status(500)
-                            .json({ message: "数据库查询失败", error: err });
+                            .json({ message: "查询课程信息失败", error: err });
                     }
 
-                    if (result.length > 0 && result[0].rating !== null) {
-                        return res
-                            .status(400)
-                            .json({ message: "您已评价过该课程" });
-                    }
+                    const tag =
+                        courseResult.length > 0 ? courseResult[0].tag : null;
+                    const category =
+                        courseResult.length > 0
+                            ? courseResult[0].category
+                            : null;
 
                     db.query(
-                        "INSERT INTO user_course (userId, courseId, rating) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE rating = VALUES(rating)",
-                        [userId, courseId, rating],
-                        (err) => {
+                        "SELECT rating FROM user_course WHERE userId = ? AND courseId = ?",
+                        [userId, courseId],
+                        (err, result) => {
                             if (err) {
                                 return res.status(500).json({
-                                    message: "评分提交失败",
+                                    message: "数据库查询失败",
                                     error: err,
                                 });
                             }
-                            res.json({
-                                success: true,
-                                message: "评分提交成功",
-                            });
+
+                            if (result.length > 0) {
+                                // 已有交互记录，检查是否已经评分
+                                if (result[0].rating !== null) {
+                                    return res.status(400).json({
+                                        message:
+                                            "您已评价过该课程，不能重复评分",
+                                    });
+                                }
+
+                                // 更新评分
+                                db.query(
+                                    `UPDATE user_course 
+                                SET rating = ?, lastClickTime = NOW() 
+                                WHERE userId = ? AND courseId = ?`,
+                                    [rating, userId, courseId],
+                                    (err) => {
+                                        if (err) {
+                                            return res.status(500).json({
+                                                message: "评分提交失败",
+                                                error: err,
+                                            });
+                                        }
+                                        res.json({
+                                            success: true,
+                                            message: "评分提交成功",
+                                        });
+                                    }
+                                );
+                            } else {
+                                // 没有交互记录，插入新记录（用户可能是直接购买后第一次访问）
+                                db.query(
+                                    `INSERT INTO user_course (userId, courseId, clickCount, duration, rating, tag, category, lastClickTime) 
+                             VALUES (?, ?, 1, 0, ?, ?, ?, NOW())`,
+                                    [userId, courseId, rating, tag, category],
+                                    (err) => {
+                                        if (err) {
+                                            return res.status(500).json({
+                                                message: "评分提交失败",
+                                                error: err,
+                                            });
+                                        }
+                                        res.json({
+                                            success: true,
+                                            message: "评分提交成功",
+                                        });
+                                    }
+                                );
+                            }
                         }
                     );
                 }
@@ -314,28 +361,33 @@ router.post("/courseAction", (req, res) => {
                     (Date.now() - sessionData.entryTime) / 1000
                 );
 
+                // 查询该用户是否已经有该课程的交互记录
                 db.query(
                     "SELECT * FROM user_course WHERE userId = ? AND courseId = ?",
                     [userId, courseId],
-                    (err, results) => {
-                        if (err)
-                            return res
-                                .status(500)
-                                .json({ error: "查询失败", details: err });
+                    (err, result) => {
+                        if (err) {
+                            return res.status(500).json({
+                                error: "数据库查询失败",
+                                details: err,
+                            });
+                        }
 
-                        if (results.length > 0) {
+                        if (result.length > 0) {
+                            // 如果记录已存在，仅更新 clickCount 和 duration
                             db.query(
-                                `UPDATE user_course
-                                 SET clickCount = clickCount + 1, 
-                                     duration = duration + ?,
-                                     lastClickTime = NOW()
-                                 WHERE userId = ? AND courseId = ?`,
+                                `UPDATE user_course 
+                                     SET clickCount = clickCount + 1, 
+                                         duration = duration + ?, 
+                                         lastClickTime = NOW() 
+                                     WHERE userId = ? AND courseId = ?`,
                                 [stayDuration, userId, courseId],
-                                (updateErr) => {
-                                    if (updateErr)
-                                        return res
-                                            .status(500)
-                                            .json({ error: "更新数据失败" });
+                                (err) => {
+                                    if (err)
+                                        return res.status(500).json({
+                                            error: "更新数据失败",
+                                            details: err,
+                                        });
 
                                     delete global.userSession[userId];
                                     res.status(200).json({
@@ -344,20 +396,51 @@ router.post("/courseAction", (req, res) => {
                                 }
                             );
                         } else {
+                            // 如果没有记录，查询课程的 tag 和 category
                             db.query(
-                                `INSERT INTO user_course (userId, courseId, clickCount, duration, lastClickTime)
-                                 VALUES (?, ?, 1, ?, NOW())`,
-                                [userId, courseId, stayDuration],
-                                (insertErr) => {
-                                    if (insertErr)
-                                        return res
-                                            .status(500)
-                                            .json({ error: "插入数据失败" });
+                                "SELECT tag, category FROM course WHERE id = ?",
+                                [courseId],
+                                (err, courseResult) => {
+                                    if (err) {
+                                        return res.status(500).json({
+                                            error: "查询课程信息失败",
+                                            details: err,
+                                        });
+                                    }
 
-                                    delete global.userSession[userId];
-                                    res.status(200).json({
-                                        message: "停留时长已记录",
-                                    });
+                                    const tag =
+                                        courseResult.length > 0
+                                            ? courseResult[0].tag
+                                            : null;
+                                    const category =
+                                        courseResult.length > 0
+                                            ? courseResult[0].category
+                                            : null;
+
+                                    // 插入新记录
+                                    db.query(
+                                        `INSERT INTO user_course (userId, courseId, clickCount, duration, tag, category, lastClickTime) 
+                                             VALUES (?, ?, 1, ?, ?, ?, NOW())`,
+                                        [
+                                            userId,
+                                            courseId,
+                                            stayDuration,
+                                            tag,
+                                            category,
+                                        ],
+                                        (err) => {
+                                            if (err)
+                                                return res.status(500).json({
+                                                    error: "插入数据失败",
+                                                    details: err,
+                                                });
+
+                                            delete global.userSession[userId];
+                                            res.status(200).json({
+                                                message: "停留时长已记录",
+                                            });
+                                        }
+                                    );
                                 }
                             );
                         }
@@ -398,6 +481,67 @@ router.get("/recommendCourses", (req, res) => {
             data: results,
         });
     });
+});
+
+// 获取全部课程、所有用户的交互数据、单个用户的交互数据，并发送给 Python 计算推荐
+router.get("/getRecommendations", async (req, res) => {
+    const { userId } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: "缺少 userId 参数" });
+    }
+
+    try {
+        // 查询所有课程
+        const allCourses = await new Promise((resolve, reject) => {
+            db.query("SELECT * FROM course", (err, result) => {
+                if (err) reject(err);
+                else resolve(result);
+            });
+        });
+
+        // 查询所有用户的交互数据
+        const allUserInteractions = await new Promise((resolve, reject) => {
+            db.query(
+                "SELECT userId, courseId, rating, clickCount, duration, tag, category FROM user_course",
+                (err, result) => {
+                    if (err) reject(err);
+                    else resolve(result);
+                }
+            );
+        });
+
+        // 查询当前用户的交互数据
+        const userInteractions = allUserInteractions.filter(
+            (item) => item.userId === userId
+        );
+
+        if (userInteractions.length < 5) {
+            return res.status(404).json({
+                recommended_courses: ["Python入门", "Java Web开发"],
+                message: "数据不足，返回默认推荐",
+            });
+        }
+
+        // 发送数据到 Python Flask 服务器
+        const response = await axios.post("http://127.0.0.1:5000/recommend", {
+            userId,
+            userInteractions, // 当前用户的交互数据
+            allCourses, // 所有课程数据
+            allUserInteractions, // 所有用户的交互数据
+        });
+
+        res.status(200).json({
+            message: "推荐成功！",
+            recommendedCourses: response.data.recommended_courses,
+            predicted_category: response.data.predicted_category,
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: "获取推荐失败",
+            details: error.message,
+        });
+    }
 });
 
 module.exports = router;
