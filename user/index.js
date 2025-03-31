@@ -113,4 +113,58 @@ router.get("/getAllUserInfo", (req, res) => {
     });
 });
 
+// 新增用户信息
+router.post("/addUser", (req, res) => {
+    const { username, email, phone, address, signature, role } = req.body;
+    const userId = nanoid();
+    const sql =
+        "INSERT INTO user (id, username, email, phone, address, signature, role) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    db.query(
+        sql,
+        [userId, username, email, phone, address, signature, role],
+        (err, result) => {
+            if (err) return res.status(500).send("数据库插入失败！" + err);
+
+            res.status(200).json({
+                message: "新增用户信息成功！",
+            });
+        }
+    );
+});
+
+// 删除用户信息
+router.post("/deleteUser", (req, res) => {
+    const { id } = req.body;
+    const sql = "DELETE FROM user WHERE id = ?";
+    db.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).send("数据库删除失败！" + err);
+        if (result.affectedRows === 0)
+            return res.status(404).send("无用户信息或数据未变化！");
+
+        res.status(200).json({
+            message: "删除用户信息成功！",
+        });
+    });
+});
+
+// 更新用户信息
+router.post("/updateUser", (req, res) => {
+    const { id, username, email, phone, address, signature, role } = req.body;
+    const sql =
+        "UPDATE user SET username = ?, email = ?, phone = ?, address = ?, signature = ?, role = ? WHERE id = ?";
+    db.query(
+        sql,
+        [username, email, phone, address, signature, role, id],
+        (err, result) => {
+            if (err) return res.status(500).send("数据库更新失败！" + err);
+            if (result.affectedRows === 0)
+                return res.status(404).send("无用户信息或数据未变化！");
+
+            res.status(200).json({
+                message: "更新用户信息成功！",
+            });
+        }
+    );
+});
+
 module.exports = router;

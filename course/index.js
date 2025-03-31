@@ -36,7 +36,7 @@ router.get("/courseSort", (req, res) => {
 
 // 获取全部分类列表2.0
 router.get("/getCategory", (req, res) => {
-    const sql = "SELECT * FROM subcategory";
+    const sql = "SELECT * FROM category";
 
     db.query(sql, (err, result) => {
         if (err) return res.status(500).send("数据库查询失败！" + err);
@@ -44,6 +44,53 @@ router.get("/getCategory", (req, res) => {
 
         res.status(200).json({
             message: "获取全部分类成功！",
+            data: result,
+        });
+    });
+});
+
+// 新增类别
+router.post("/addCategory", (req, res) => {
+    const { name } = req.body;
+    const sql = "INSERT INTO category (name) VALUES (?)";
+
+    db.query(sql, [name], (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.affectedRows < 1) return res.status(400).send("新增失败！");
+
+        res.status(200).json({
+            message: "新增类别成功！",
+            data: result,
+        });
+    });
+});
+
+// 修改类别
+router.post("/updateCategory", (req, res) => {
+    const { id, name } = req.body;
+    const sql = "UPDATE category SET name = ? WHERE id = ?";
+
+    db.query(sql, [name, id], (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.affectedRows < 1) return res.status(400).send("修改失败！");
+
+        res.status(200).json({
+            message: "修改类别成功！",
+            data: result,
+        });
+    });
+});
+
+// 删除类别
+router.post("/deleteCategory", (req, res) => {
+    const { id } = req.body;
+    const sql = "DELETE FROM category WHERE id = ?";
+    db.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+
+        if (result.affectedRows < 1) return res.status(400).send("删除失败！");
+        res.status(200).json({
+            message: "删除类别成功！",
             data: result,
         });
     });
@@ -110,6 +157,21 @@ router.get("/getList", (req, res) => {
                 total,
                 data: data,
             });
+        });
+    });
+});
+
+// 获取所有课程信息
+router.get("/getAllCourse", (req, res) => {
+    const sql = "SELECT * FROM course";
+
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.length < 1) return res.status(404).send("无数据！");
+
+        res.status(200).json({
+            message: "获取所有课程成功！",
+            data: result,
         });
     });
 });
@@ -553,6 +615,148 @@ router.get("/getRecommendations", async (req, res) => {
             details: error.message,
         });
     }
+});
+
+// 获取轮播图（包含课程名称）
+router.get("/getPictures", (req, res) => {
+    const sql = `
+        SELECT s.id, s.imageUrl, s.courseId, c.title AS name
+        FROM swiper s
+        INNER JOIN course c ON s.courseId = c.id
+    `;
+
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).send("数据库查询失败！" + err);
+        if (result.length < 1) return res.status(404).send("无轮播图数据！");
+
+        res.status(200).json({
+            message: "获取轮播图成功！",
+            data: result,
+        });
+    });
+});
+
+// 管理端增删改
+// 新增课程
+router.post("/addCourse", (req, res) => {
+    const {
+        title,
+        teacher,
+        desc,
+        source,
+        tag,
+        category,
+        price,
+        guide,
+        overview,
+        target,
+        createTime,
+    } = req.body;
+
+    const sql = `
+        INSERT INTO course (title, teacher, \`desc\`, source, tag, category, price, guide, overview, target, createTime) 
+        VALUES (?,?,?,?,?,?,?,?,?,?,Now())
+    `;
+
+    db.query(
+        sql,
+        [
+            title,
+            teacher,
+            desc,
+            source,
+            tag,
+            category,
+            price,
+            guide,
+            overview,
+            target,
+            createTime,
+        ],
+        (err, result) => {
+            if (err)
+                return res
+                    .status(500)
+                    .json({ error: "新增课程失败", details: err });
+
+            res.status(200).json({
+                message: "新增课程成功！",
+                data: { id: result.insertId },
+            });
+        }
+    );
+});
+
+// 删除课程
+router.post("/deleteCourse", (req, res) => {
+    const { id } = req.body;
+
+    const sql = `
+        DELETE FROM course WHERE id = ?
+    `;
+
+    db.query(sql, [id], (err, result) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "删除课程失败", details: err });
+
+        res.status(200).json({
+            message: "删除课程成功！",
+            data: { id },
+        });
+    });
+});
+
+// 修改课程
+router.post("/updateCourse", (req, res) => {
+    const {
+        id,
+        title,
+        teacher,
+        desc,
+        source,
+        tag,
+        category,
+        price,
+        guide,
+        overview,
+        target,
+    } = req.body;
+
+    const sql = `
+        UPDATE course 
+        SET title = ?, teacher = ?, \`desc\` = ?, source = ?, tag = ?, category = ?, price = ?, guide = ?, overview = ?, target = ?
+        WHERE id = ?
+    `;
+
+    db.query(
+        sql,
+        [
+            title,
+            teacher,
+            desc,
+            source,
+            tag,
+            category,
+            price,
+            guide,
+            overview,
+            target,
+            id,
+        ],
+        (err, result) => {
+            if (err)
+                return res
+                    .status(500)
+                    .json({ error: "修改课程失败", details: err });
+
+            res.status(200).json({
+                message: "修改课程成功！",
+                data: { id },
+            });
+        }
+    );
 });
 
 module.exports = router;
