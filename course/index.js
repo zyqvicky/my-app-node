@@ -1,7 +1,18 @@
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
+const multer = require("multer");
 const db = require("../db/index");
+const path = require("path");
+
+const storage = multer.diskStorage({
+    destination: "uploads/",
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, `${file.fieldname}-${Date.now()}${ext}`);
+    },
+});
+const upload = multer({ storage });
 
 // 获取分类列表 暂时弃置
 router.get("/courseSort", (req, res) => {
@@ -632,6 +643,87 @@ router.get("/getPictures", (req, res) => {
         res.status(200).json({
             message: "获取轮播图成功！",
             data: result,
+        });
+    });
+});
+
+// 新增轮播
+router.post("/addPictures", (req, res) => {
+    const { imageUrl, name } = req.body;
+
+    const sql = `
+        INSERT INTO swiper (imageUrl, courseId) 
+        VALUES (?, ?)
+        `;
+    db.query(sql, [imageUrl, name], (err, result) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "新增轮播图失败", details: err });
+
+        res.status(200).json({
+            message: "新增轮播图成功！",
+            data: { id: result.insertId },
+        });
+    });
+});
+
+// 删除轮播
+router.post("/deletePictures", (req, res) => {
+    const { id } = req.body;
+
+    const sql = `
+        DELETE FROM swiper WHERE id = ?
+    `;
+
+    db.query(sql, [id], (err, result) => {
+        if (err)
+            return res
+                .status(500)
+                .json({ error: "删除轮播图失败", details: err });
+
+        res.status(200).json({
+            message: "删除轮播图成功！",
+            data: { id },
+        });
+    });
+});
+
+// 上传图片接口
+router.post("/uploadImage", upload.single("image"), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "没有文件上传！" });
+    const coverUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+
+    res.status(200).json({
+        message: "上传成功",
+        coverUrl,
+    });
+});
+
+// 编辑轮播
+router.post("/updatePictures", (req, res) => {
+    const { id, imageUrl, name } = req.body;
+
+    if (!id || !imageUrl || !name) {
+        return res.status(400).json({ error: "参数不完整" });
+    }
+
+    const sql = `
+        UPDATE swiper 
+        SET imageUrl = ?, courseId = ?
+        WHERE id = ?
+    `;
+
+    db.query(sql, [imageUrl, name, id], (err, result) => {
+        if (err) {
+            return res
+                .status(500)
+                .json({ error: "更新轮播图失败", details: err });
+        }
+
+        res.status(200).json({
+            message: "轮播图更新成功！",
+            data: { id, imageUrl, name },
         });
     });
 });

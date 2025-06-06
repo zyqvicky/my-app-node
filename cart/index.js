@@ -243,7 +243,6 @@ router.post("/createBuyInfo", (req, res) => {
     }
 
     try {
-        // 2️⃣ 插入系统消息提醒用户评分
         const messageSql = `
             INSERT INTO message (userId, content, type, status, createTime) 
             VALUES (?, ?, 'system', 'unread', NOW());
